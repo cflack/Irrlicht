@@ -34,6 +34,9 @@ func buildAgentWatchers(
 
 	if s, ok := a.Source.(agent.FilesUnderRoot); ok {
 		w := fswatcher.New(s.Dir, a.Identity.Name, maxSessionAge).WithIdentity(a.Identity)
+		if s.UseDirAsSessionID {
+			w = w.WithDirAsSessionID()
+		}
 		watchers = append(watchers, w)
 		labels = append(labels, fmt.Sprintf("%s (%s)", a.Identity.Name, w.Root()))
 	}

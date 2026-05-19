@@ -10,6 +10,7 @@ import (
 	"irrlicht/core/adapters/inbound/agents/codex"
 	"irrlicht/core/adapters/inbound/agents/opencode"
 	"irrlicht/core/adapters/inbound/agents/pi"
+	"irrlicht/core/adapters/inbound/agents/vibe"
 	"irrlicht/core/domain/agent"
 )
 
@@ -21,12 +22,14 @@ func testAgents() []agent.Agent {
 		pi.Agent(),
 		aider.Agent(),
 		opencode.Agent(),
+		vibe.Agent(),
 	}
 }
 
 func TestParsers_includesJSONLineParserAdapters(t *testing.T) {
 	m := agents.Parsers(testAgents())
-	for _, name := range []string{claudecode.AdapterName, codex.AdapterName, pi.AdapterName} {
+	// Vibe uses FilesUnderRoot with JSONLineParser, same as claudecode, codex, pi
+	for _, name := range []string{claudecode.AdapterName, codex.AdapterName, pi.AdapterName, vibe.AdapterName} {
 		if _, ok := m[name]; !ok {
 			t.Errorf("Parsers missing %q", name)
 		}
@@ -50,7 +53,7 @@ func TestPIDDiscoverers_coversAllAdapters(t *testing.T) {
 	m := agents.PIDDiscoverers(testAgents())
 	for _, name := range []string{
 		claudecode.AdapterName, codex.AdapterName, pi.AdapterName,
-		aider.AdapterName, opencode.AdapterName,
+		aider.AdapterName, opencode.AdapterName, vibe.AdapterName,
 	} {
 		if _, ok := m[name]; !ok {
 			t.Errorf("PIDDiscoverers missing %q", name)
@@ -66,6 +69,7 @@ func TestProcessNames_matchesConfigShape(t *testing.T) {
 		pi.AdapterName:         "pi",
 		aider.AdapterName:      "aider", // CommandPattern fallback to Identity.Name
 		opencode.AdapterName:   "opencode",
+		vibe.AdapterName:       "vibe",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ProcessNames: got %v, want %v", got, want)
@@ -77,7 +81,8 @@ func TestSubagentCounters_onlyClaudecode(t *testing.T) {
 	if _, ok := m[claudecode.AdapterName]; !ok {
 		t.Errorf("SubagentCounters missing %q", claudecode.AdapterName)
 	}
-	for _, name := range []string{codex.AdapterName, pi.AdapterName, aider.AdapterName, opencode.AdapterName} {
+	// Vibe doesn't implement SubagentCounter
+	for _, name := range []string{codex.AdapterName, pi.AdapterName, aider.AdapterName, opencode.AdapterName, vibe.AdapterName} {
 		if _, ok := m[name]; ok {
 			t.Errorf("SubagentCounters should not include %q", name)
 		}
@@ -89,7 +94,8 @@ func TestMetricsProviders_onlyOpencode(t *testing.T) {
 	if _, ok := m[opencode.AdapterName]; !ok {
 		t.Errorf("MetricsProviders missing %q", opencode.AdapterName)
 	}
-	for _, name := range []string{claudecode.AdapterName, codex.AdapterName, pi.AdapterName, aider.AdapterName} {
+	// Vibe doesn't use ProcessOwnedStore, so it shouldn't be in MetricsProviders
+	for _, name := range []string{claudecode.AdapterName, codex.AdapterName, pi.AdapterName, aider.AdapterName, vibe.AdapterName} {
 		if _, ok := m[name]; ok {
 			t.Errorf("MetricsProviders should not include %q", name)
 		}

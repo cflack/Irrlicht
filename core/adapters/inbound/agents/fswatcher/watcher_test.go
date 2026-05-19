@@ -536,3 +536,115 @@ func TestHandleEvent_MaxAge_Zero_DisablesFilter(t *testing.T) {
 		t.Fatal("timed out — event should have been emitted with maxAge=0")
 	}
 }
+
+// TestWatch_WithDirAsSessionID tests that when WithDirAsSessionID is called,
+// the watcher uses the parent directory name as the session ID instead of
+// extracting it from the filename. This is used by adapters like Mistral Vibe
+// where each session is a directory containing a fixed filename (messages.jsonl).
+func TestWatch_WithDirAsSessionID(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create session directories (like Vibe does)
+	session1Dir := filepath.Join(root, "session_20260519_100000_abc123")
+	session2Dir := filepath.Join(root, "session_20260519_110000_def456")
+	for _, dir := range []string{session1Dir, session2Dir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create messages.jsonl files in each session directory
+	for _, dir := range []string{session1Dir, session2Dir} {
+		transcriptPath := filepath.Join(dir, "messages.jsonl")
+		if err := os.WriteFile(transcriptPath, []byte(`{"type":"user"}`+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create watcher with WithDirAsSessionID
+	w := NewWithRoot(root, testAdapter, 0).WithDirAsSessionID()
+	ch := w.Subscribe()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	watchErr := make(chan error, 1)
+	go func() { watchErr <- w.Watch(ctx) }()
+
+	// Give watcher time to start and emit existing files
+	time.Sleep(500 * time.Millisecond)
+
+	// Drain existing file events - we expect 2 new session events
+	events := make([]agent.Event, 0)
+	for i := 0; i < 2; i++ {
+		select {
+		case ev := <-ch:
+			events = append(events, ev)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for existing file events, got %d events", len(events))
+		}
+	}
+
+	// Verify both sessions were detected with correct directory-based session IDs
+	sessionIDs := make(map[string]bool)
+	for _, ev := range events {
+		if ev.Type != agent.EventNewSession {
+			t.Errorf("event type = %q, want %q", ev.Type, agent.EventNewSession)
+		}
+		sessionIDs[ev.SessionID] = true
+		// Session ID should be the directory name, not "messages"
+		if ev.SessionID == "messages" {
+			t.Errorf("session ID should be directory name, got 'messages'")
+		}
+	}
+
+	if !sessionIDs["session_20260519_100000_abc123"] {
+		t.Errorf("expected session_20260519_100000_abc123 in session IDs, got %v", sessionIDs)
+	}
+	if !sessionIDs["session_20260519_110000_def456"] {
+		t.Errorf("expected session_20260519_110000_def456 in session IDs, got %v", sessionIDs)
+	}
+
+	cancel()
+	if err := <-watchErr; err != nil && err != context.Canceled {
+		t.Errorf("Watch returned unexpected error: %v", err)
+	}
+}
+
+// TestHandleEvent_DirAsSessionID tests handleEvent with directory-based session IDs
+func TestHandleEvent_DirAsSessionID(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sessions")
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionDir := filepath.Join(root, "session_20260519_120000_xyz789")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	w := NewWithRoot(root, testAdapter, 0).WithDirAsSessionID()
+	ch := w.Subscribe()
+
+	// Simulate a file write event for messages.jsonl
+	transcriptPath := filepath.Join(sessionDir, "messages.jsonl")
+	w.handleEvent(nil, fsnotify.Event{Name: transcriptPath, Op: fsnotify.Write})
+
+	select {
+	case ev := <-ch:
+		if ev.Type != agent.EventActivity {
+			t.Errorf("event type = %q, want %q", ev.Type, agent.EventActivity)
+		}
+		if ev.SessionID != "session_20260519_120000_xyz789" {
+			t.Errorf("session ID = %q, want %q", ev.SessionID, "session_20260519_120000_xyz789")
+		}
+		if ev.ProjectDir != "" {
+			t.Errorf("project dir = %q, want empty string", ev.ProjectDir)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for activity event")
+	}
+}

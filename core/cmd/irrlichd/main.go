@@ -22,6 +22,7 @@ import (
 	"irrlicht/core/adapters/inbound/agents/opencode"
 	"irrlicht/core/adapters/inbound/agents/pi"
 	"irrlicht/core/adapters/inbound/agents/processlifecycle"
+	"irrlicht/core/adapters/inbound/agents/vibe"
 	gastownadapter "irrlicht/core/adapters/inbound/orchestrators/gastown"
 	sessionshandler "irrlicht/core/adapters/inbound/sessions"
 	"irrlicht/core/adapters/outbound/filesystem"
@@ -160,6 +161,7 @@ func main() {
 		pi.Agent(),
 		aider.Agent(),
 		opencode.Agent(),
+		vibe.Agent(),
 	}
 
 	// Build the per-adapter parser map and patch in the FilesUnderCWD

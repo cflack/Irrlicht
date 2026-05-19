@@ -11,8 +11,11 @@ type Source interface {
 // directory under $HOME. The runtime fswatches Dir and emits
 // new/activity/removed events.
 type FilesUnderRoot struct {
-	Dir    string     // path relative to $HOME, e.g. ".claude/projects"
-	Parser FileParser
+	Dir             string     // path relative to $HOME, e.g. ".claude/projects"
+	Parser          FileParser
+	UseDirAsSessionID bool // if true, use directory name as session ID instead of filename.
+	                    // Used by adapters like Mistral Vibe where each session is a
+	                    // directory containing a fixed filename (messages.jsonl).
 }
 
 func (FilesUnderRoot) isSource() {}
