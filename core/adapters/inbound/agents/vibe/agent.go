@@ -24,10 +24,11 @@ func Agent() agent.Agent {
 			PIDForSession: DiscoverPID,
 		},
 		Source: agent.FilesUnderRoot{
-			Dir: sessionsDir(),
+			Dir:             sessionsDir(),
 			Parser: agent.JSONLineParser{
 				NewParser: func() agent.LineParser { return &Parser{} },
 			},
+			UseDirAsSessionID: true,
 		},
 	}
 }

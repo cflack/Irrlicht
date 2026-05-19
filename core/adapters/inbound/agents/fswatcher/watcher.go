@@ -24,6 +24,13 @@ type Watcher struct {
 	identity agent.Identity // populated via WithIdentity
 	maxAge   time.Duration  // ignore files older than this (0 = no limit)
 
+	// useDirAsSessionID, if true, uses the parent directory name as the
+	// session ID instead of extracting it from the filename. This is needed
+	// for adapters like Mistral Vibe where each session is a directory
+	// containing a fixed filename (e.g., messages.jsonl) and the directory
+	// name is the unique session identifier.
+	useDirAsSessionID bool
+
 	subMu sync.Mutex
 	subs  []chan agent.Event
 }
@@ -41,6 +48,16 @@ func (w *Watcher) WithIdentity(id agent.Identity) *Watcher {
 // zero value if WithIdentity was never called.
 func (w *Watcher) Identity() agent.Identity {
 	return w.identity
+}
+
+// WithDirAsSessionID configures the watcher to use the parent directory
+// name as the session ID instead of extracting it from the filename.
+// Used by adapters like Mistral Vibe where each session is a directory
+// with a fixed filename (messages.jsonl) and the directory name is the
+// unique session identifier.
+func (w *Watcher) WithDirAsSessionID() *Watcher {
+	w.useDirAsSessionID = true
+	return w
 }
 
 // New creates a Watcher for the given directory. If dir is absolute, it is
@@ -183,12 +200,27 @@ func (w *Watcher) handleEvent(watcher *fsnotify.Watcher, ev fsnotify.Event) {
 		return
 	}
 
-	sessionID := extractSessionID(name)
+	var sessionID, projectDir string
+	if w.useDirAsSessionID {
+		// For adapters like Vibe: use parent directory name as session ID,
+		// and grandparent (or root itself) as projectDir.
+		dir := filepath.Dir(name)
+		sessionID = filepath.Base(dir)
+		// projectDir: use the directory name's prefix if it follows the
+		// session_<timestamp>_<id> pattern, otherwise use the full dir basename
+		if strings.HasPrefix(sessionID, "session_") {
+			projectDir = ""
+		} else {
+			projectDir = filepath.Base(filepath.Dir(dir))
+		}
+	} else {
+		sessionID = extractSessionID(name)
+		projectDir = filepath.Base(filepath.Dir(name))
+	}
+
 	if sessionID == "" {
 		return
 	}
-
-	projectDir := filepath.Base(filepath.Dir(name))
 
 	switch {
 	case ev.Op&fsnotify.Create != 0:
@@ -350,13 +382,24 @@ func (w *Watcher) emitExistingFiles(dir string) {
 	if err != nil {
 		return
 	}
-	projectDir := filepath.Base(dir)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
 		fullPath := filepath.Join(dir, e.Name())
-		sessionID := extractSessionID(fullPath)
+		var sessionID, projectDir string
+		if w.useDirAsSessionID {
+			// For adapters like Vibe: use parent directory name as session ID
+			sessionID = filepath.Base(dir)
+			if strings.HasPrefix(sessionID, "session_") {
+				projectDir = ""
+			} else {
+				projectDir = filepath.Base(filepath.Dir(dir))
+			}
+		} else {
+			sessionID = extractSessionID(fullPath)
+			projectDir = filepath.Base(dir)
+		}
 		if sessionID == "" {
 			continue
 		}
